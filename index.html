@@ -1,0 +1,1461 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#05020d">
+
+<title>Holographic Projection | HAI CALISTA</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    background: #05020d;
+    color: #dcb3ff;
+    font-family: Arial, Helvetica, sans-serif;
+    user-select: none;
+}
+
+canvas {
+    display: block;
+}
+
+#app {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+#scene {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+.ui {
+    position: absolute;
+    z-index: 5;
+    width: 100%;
+    pointer-events: none;
+}
+
+.header {
+    top: 25px;
+    text-align: center;
+}
+
+.title {
+    font-size: clamp(17px, 3vw, 34px);
+    font-weight: bold;
+    letter-spacing: 0.25em;
+    color: #e4b7ff;
+    text-shadow:
+        0 0 10px #b45aff,
+        0 0 30px #8a2be2;
+}
+
+.status {
+    margin-top: 25px;
+    font-size: clamp(10px, 1.5vw, 16px);
+    letter-spacing: 0.3em;
+    color: #c78bff;
+    text-shadow: 0 0 12px #a855f7;
+}
+
+.footer {
+    bottom: 25px;
+    text-align: center;
+}
+
+.instruction {
+    font-size: clamp(10px, 1.5vw, 15px);
+    letter-spacing: 0.2em;
+    color: #d9b4ff;
+    text-shadow: 0 0 12px #a855f7;
+    margin-bottom: 18px;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    pointer-events: auto;
+}
+
+button {
+    background: rgba(125, 40, 220, 0.08);
+    border: 1px solid #b66cff;
+    border-radius: 30px;
+    padding: 12px 25px;
+    color: #e5c6ff;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    transition: 0.3s ease;
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.12);
+}
+
+button:hover {
+    background: rgba(168, 85, 247, 0.2);
+    box-shadow: 0 0 25px rgba(168, 85, 247, 0.5);
+    transform: translateY(-2px);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+#cameraStatus {
+    margin-top: 12px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: #a98ac5;
+}
+
+#cameraPreview {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    width: 140px;
+    height: 100px;
+    object-fit: cover;
+    transform: scaleX(-1);
+    border: 1px solid rgba(180, 108, 255, 0.5);
+    border-radius: 8px;
+    opacity: 0.35;
+    z-index: 4;
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .header {
+        top: 20px;
+    }
+
+    .title {
+        letter-spacing: 0.13em;
+    }
+
+    .status {
+        margin-top: 16px;
+        letter-spacing: 0.18em;
+    }
+
+    .footer {
+        bottom: 20px;
+    }
+
+    .instruction {
+        letter-spacing: 0.1em;
+        margin-bottom: 12px;
+    }
+
+    button {
+        padding: 11px 17px;
+        font-size: 10px;
+    }
+
+    #cameraPreview {
+        width: 90px;
+        height: 70px;
+        right: 10px;
+        bottom: 10px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div id="app">
+
+    <div id="scene"></div>
+
+    <div class="ui header">
+        <div class="title">HOLOGRAPHIC PROJECTION</div>
+        <div class="status" id="gestureStatus">
+            GESTURE: OPEN HAND
+        </div>
+    </div>
+
+    <div class="ui footer">
+
+        <div class="instruction" id="instruction">
+            OPEN YOUR HAND TO FORM SATURN
+        </div>
+
+        <div class="controls">
+
+            <button id="cameraButton">
+                ACTIVATE CAMERA
+            </button>
+
+            <button id="resetButton">
+                RESET HOLOGRAM
+            </button>
+
+        </div>
+
+        <div id="cameraStatus">
+            CAMERA NOT ACTIVE
+        </div>
+
+    </div>
+
+    <video
+        id="cameraPreview"
+        autoplay
+        playsinline
+        muted>
+    </video>
+
+</div>
+
+
+<script type="module">
+
+import * as THREE from
+"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
+import {
+    FilesetResolver,
+    HandLandmarker
+} from
+"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+
+/* =====================================================
+   CONFIGURATION
+===================================================== */
+
+const CONFIG = {
+
+    particleCount: 9000,
+
+    saturnRadius: 1.35,
+
+    ringInnerRadius: 1.65,
+
+    ringOuterRadius: 2.35,
+
+    text: "HAI CALISTA",
+
+    color: 0xb66cff,
+
+    ambientCount: 1600,
+
+    transitionSpeed: 0.055,
+
+    rotationSpeed: 0.045
+
+};
+
+
+/* =====================================================
+   GLOBAL VARIABLES
+===================================================== */
+
+let scene;
+let camera;
+let renderer;
+
+let hologramGroup;
+
+let particleGeometry;
+let particleMaterial;
+let particleSystem;
+
+let ambientStars;
+
+let saturnPositions = [];
+let textPositions = [];
+
+let currentPositions = [];
+
+let handLandmarker;
+let cameraStream = null;
+
+let currentGesture = "OPEN";
+
+let cameraActive = false;
+
+let lastVideoTime = -1;
+
+let targetRotationX = 0;
+let targetRotationY = 0;
+
+let handRotationX = 0;
+let handRotationY = 0;
+
+let lastHandX = null;
+let lastHandY = null;
+
+let isTransitioning = false;
+
+const video = document.getElementById("cameraPreview");
+
+const gestureStatus =
+document.getElementById("gestureStatus");
+
+const instruction =
+document.getElementById("instruction");
+
+const cameraStatus =
+document.getElementById("cameraStatus");
+
+const cameraButton =
+document.getElementById("cameraButton");
+
+const resetButton =
+document.getElementById("resetButton");
+
+
+/* =====================================================
+   THREE.JS INITIALIZATION
+===================================================== */
+
+function initThree() {
+
+    scene = new THREE.Scene();
+
+    scene.background = new THREE.Color(0x05020d);
+
+    camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+    );
+
+    camera.position.z = 8;
+
+    renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: false
+    });
+
+    renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, 2)
+    );
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+
+    document
+        .getElementById("scene")
+        .appendChild(renderer.domElement);
+
+    hologramGroup = new THREE.Group();
+
+    scene.add(hologramGroup);
+
+    createSaturnParticles();
+
+    createAmbientStars();
+
+    window.addEventListener(
+        "resize",
+        onWindowResize
+    );
+
+}
+
+
+/* =====================================================
+   SATURN PARTICLES
+===================================================== */
+
+function createSaturnParticles() {
+
+    saturnPositions = [];
+
+    textPositions = [];
+
+    currentPositions = [];
+
+    const count = CONFIG.particleCount;
+
+    for (let i = 0; i < count; i++) {
+
+        let x, y, z;
+
+        /*
+        Saturn particle distribution.
+
+        Approximately 65% particles form the planet.
+        Remaining particles form the rings.
+        */
+
+        if (Math.random() < 0.65) {
+
+            const u = Math.random() * 2 - 1;
+
+            const theta =
+            Math.random() * Math.PI * 2;
+
+            const radius =
+            CONFIG.saturnRadius *
+            Math.sqrt(1 - u * u);
+
+            x = radius * Math.cos(theta);
+
+            y = CONFIG.saturnRadius * u;
+
+            z = radius * Math.sin(theta);
+
+        } else {
+
+            const angle =
+            Math.random() * Math.PI * 2;
+
+            const radius = Math.sqrt(
+                Math.random() *
+                (
+                    CONFIG.ringOuterRadius ** 2 -
+                    CONFIG.ringInnerRadius ** 2
+                ) +
+                CONFIG.ringInnerRadius ** 2
+            );
+
+            x = radius * Math.cos(angle);
+
+            z = radius * Math.sin(angle);
+
+            y = (Math.random() - 0.5) * 0.08;
+
+        }
+
+        /*
+        Tilt Saturn's rings.
+        */
+
+        const ringTilt = -0.35;
+
+        const rotatedY =
+            y * Math.cos(ringTilt) -
+            z * Math.sin(ringTilt);
+
+        const rotatedZ =
+            y * Math.sin(ringTilt) +
+            z * Math.cos(ringTilt);
+
+        saturnPositions.push(
+            x,
+            rotatedY,
+            rotatedZ
+        );
+
+        currentPositions.push(
+            x,
+            rotatedY,
+            rotatedZ
+        );
+
+    }
+
+
+    /*
+    Create text particle positions.
+    */
+
+    textPositions = generateTextPositions(
+        CONFIG.text,
+        count
+    );
+
+
+    /*
+    Create particle geometry.
+    */
+
+    particleGeometry =
+    new THREE.BufferGeometry();
+
+    particleGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+            currentPositions,
+            3
+        )
+    );
+
+
+    /*
+    Purple hologram material.
+    */
+
+    particleMaterial =
+    new THREE.PointsMaterial({
+
+        color: CONFIG.color,
+
+        size: 0.025,
+
+        transparent: true,
+
+        opacity: 0.95,
+
+        blending: THREE.AdditiveBlending,
+
+        depthWrite: false,
+
+        sizeAttenuation: true
+
+    });
+
+
+    particleSystem = new THREE.Points(
+        particleGeometry,
+        particleMaterial
+    );
+
+    hologramGroup.add(particleSystem);
+
+}
+
+
+/* =====================================================
+   TEXT PARTICLE GENERATOR
+===================================================== */
+
+function generateTextPositions(text, count) {
+
+    const canvas = document.createElement("canvas");
+
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = 1400;
+
+    canvas.height = 350;
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    ctx.fillStyle = "#ffffff";
+
+    ctx.font = "bold 190px Arial";
+
+    ctx.textAlign = "center";
+
+    ctx.textBaseline = "middle";
+
+    ctx.fillText(
+        text,
+        canvas.width / 2,
+        canvas.height / 2
+    );
+
+
+    const imageData = ctx.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    ).data;
+
+
+    const validPixels = [];
+
+    for (
+        let y = 0;
+        y < canvas.height;
+        y += 2
+    ) {
+
+        for (
+            let x = 0;
+            x < canvas.width;
+            x += 2
+        ) {
+
+            const index =
+            (y * canvas.width + x) * 4;
+
+            if (imageData[index + 3] > 100) {
+
+                validPixels.push({
+                    x,
+                    y
+                });
+
+            }
+
+        }
+
+    }
+
+
+    const positions = [];
+
+    const textWidth = 5.8;
+
+    const textHeight = 1.45;
+
+
+    /*
+    Each particle receives a point
+    from the actual text shape.
+    */
+
+    for (let i = 0; i < count; i++) {
+
+        const pixel =
+        validPixels[
+            Math.floor(
+                Math.random() *
+                validPixels.length
+            )
+        ];
+
+        const x =
+        (
+            pixel.x / canvas.width - 0.5
+        ) * textWidth;
+
+        const y =
+        (
+            0.5 -
+            pixel.y / canvas.height
+        ) * textHeight;
+
+        const z =
+        (Math.random() - 0.5) * 0.12;
+
+
+        positions.push(
+            x,
+            y,
+            z
+        );
+
+    }
+
+    return positions;
+
+}
+
+
+/* =====================================================
+   AMBIENT STARS
+===================================================== */
+
+function createAmbientStars() {
+
+    const count = CONFIG.ambientCount;
+
+    const positions = [];
+
+    for (let i = 0; i < count; i++) {
+
+        positions.push(
+
+            (Math.random() - 0.5) * 25,
+
+            (Math.random() - 0.5) * 16,
+
+            -Math.random() * 12
+
+        );
+
+    }
+
+
+    const geometry =
+    new THREE.BufferGeometry();
+
+    geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+            positions,
+            3
+        )
+    );
+
+
+    const material =
+    new THREE.PointsMaterial({
+
+        color: 0xb66cff,
+
+        size: 0.018,
+
+        transparent: true,
+
+        opacity: 0.65,
+
+        blending: THREE.AdditiveBlending,
+
+        depthWrite: false
+
+    });
+
+
+    ambientStars = new THREE.Points(
+        geometry,
+        material
+    );
+
+    scene.add(ambientStars);
+
+}
+
+
+/* =====================================================
+   GESTURE DETECTION
+===================================================== */
+
+function detectGesture(landmarks) {
+
+    /*
+    MediaPipe landmarks:
+
+    0  = wrist
+    8  = index fingertip
+    12 = middle fingertip
+    16 = ring fingertip
+    20 = pinky fingertip
+    */
+
+
+    const fingers = [
+
+        landmarks[8].y <
+        landmarks[6].y,
+
+        landmarks[12].y <
+        landmarks[10].y,
+
+        landmarks[16].y <
+        landmarks[14].y,
+
+        landmarks[20].y <
+        landmarks[18].y
+
+    ];
+
+
+    const extendedCount =
+    fingers.filter(Boolean).length;
+
+
+    /*
+    OPEN HAND
+    */
+
+    if (extendedCount >= 4) {
+
+        return "OPEN";
+
+    }
+
+
+    /*
+    INDEX FINGER ONLY
+
+    Index extended.
+    Middle, ring and pinky folded.
+    */
+
+    if (
+        fingers[0] &&
+        !fingers[1] &&
+        !fingers[2] &&
+        !fingers[3]
+    ) {
+
+        return "INDEX";
+
+    }
+
+
+    /*
+    FIST
+    */
+
+    if (extendedCount === 0) {
+
+        return "FIST";
+
+    }
+
+
+    return "UNKNOWN";
+
+}
+
+
+/* =====================================================
+   GESTURE MODE
+===================================================== */
+
+function updateGesture(gesture) {
+
+    if (gesture === "UNKNOWN") {
+        return;
+    }
+
+
+    if (gesture === currentGesture) {
+        return;
+    }
+
+
+    currentGesture = gesture;
+
+
+    if (gesture === "OPEN") {
+
+        gestureStatus.textContent =
+        "GESTURE: OPEN HAND";
+
+        instruction.textContent =
+        "SATURN HOLOGRAM ACTIVATED";
+
+        setTargetPositions(
+            saturnPositions
+        );
+
+    }
+
+
+    else if (gesture === "FIST") {
+
+        gestureStatus.textContent =
+        "GESTURE: FIST";
+
+        instruction.textContent =
+        "SATURN PARTICLES FORM HAI CALISTA";
+
+        setTargetPositions(
+            textPositions
+        );
+
+    }
+
+
+    else if (gesture === "INDEX") {
+
+        gestureStatus.textContent =
+        "GESTURE: 360 ROTATION";
+
+        instruction.textContent =
+        "MOVE INDEX FINGER TO ROTATE";
+
+    }
+
+}
+
+
+/* =====================================================
+   PARTICLE TRANSITION
+===================================================== */
+
+function setTargetPositions(target) {
+
+    isTransitioning = true;
+
+    const positionAttribute =
+    particleGeometry.attributes.position;
+
+
+    /*
+    Store target positions.
+    */
+
+    positionAttribute.array.targetPositions =
+    target;
+
+}
+
+
+/* =====================================================
+   SMOOTH PARTICLE MORPHING
+===================================================== */
+
+function animateParticles() {
+
+    const positionAttribute =
+    particleGeometry.attributes.position;
+
+    const positions =
+    positionAttribute.array;
+
+    const target =
+    positionAttribute.array.targetPositions;
+
+
+    if (target) {
+
+        let complete = true;
+
+        for (
+            let i = 0;
+            i < positions.length;
+            i++
+        ) {
+
+            const difference =
+            target[i] - positions[i];
+
+            positions[i] +=
+            difference *
+            CONFIG.transitionSpeed;
+
+
+            if (Math.abs(difference) > 0.002) {
+
+                complete = false;
+
+            }
+
+        }
+
+
+        if (complete) {
+
+            isTransitioning = false;
+
+        }
+
+        positionAttribute.needsUpdate = true;
+
+    }
+
+}
+
+
+/* =====================================================
+   HAND ROTATION
+===================================================== */
+
+function updateHandRotation(landmarks) {
+
+    const indexTip = landmarks[8];
+
+
+    /*
+    Convert hand position into normalized coordinates.
+    */
+
+    const handX = indexTip.x;
+
+    const handY = indexTip.y;
+
+
+    if (
+        lastHandX === null ||
+        lastHandY === null
+    ) {
+
+        lastHandX = handX;
+
+        lastHandY = handY;
+
+        return;
+
+    }
+
+
+    const deltaX =
+    handX - lastHandX;
+
+    const deltaY =
+    handY - lastHandY;
+
+
+    /*
+    Horizontal movement = Y-axis rotation.
+
+    Vertical movement = X-axis rotation.
+
+    A complete movement across the camera
+    can rotate the hologram approximately 360°.
+    */
+
+
+    handRotationY +=
+    deltaX * Math.PI * 2;
+
+
+    handRotationX +=
+    deltaY * Math.PI * 2;
+
+
+    targetRotationY =
+    handRotationY;
+
+    targetRotationX =
+    handRotationX;
+
+
+    lastHandX = handX;
+
+    lastHandY = handY;
+
+}
+
+
+/* =====================================================
+   CAMERA + MEDIAPIPE
+===================================================== */
+
+async function activateCamera() {
+
+    if (cameraActive) {
+
+        stopCamera();
+
+        return;
+
+    }
+
+
+    try {
+
+        cameraButton.disabled = true;
+
+        cameraStatus.textContent =
+        "REQUESTING CAMERA PERMISSION...";
+
+
+        /*
+        Request camera permission.
+        */
+
+        cameraStream =
+        await navigator.mediaDevices.getUserMedia({
+
+            video: {
+
+                facingMode: "user",
+
+                width: {
+                    ideal: 1280
+                },
+
+                height: {
+                    ideal: 720
+                }
+
+            },
+
+            audio: false
+
+        });
+
+
+        video.srcObject = cameraStream;
+
+        await video.play();
+
+
+        /*
+        Initialize MediaPipe.
+        */
+
+        const vision =
+        await FilesetResolver.forVisionTasks(
+
+            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+
+        );
+
+
+        handLandmarker =
+        await HandLandmarker.createFromOptions(
+
+            vision,
+
+            {
+
+                baseOptions: {
+
+                    modelAssetPath:
+
+                    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+
+                    delegate: "GPU"
+
+                },
+
+                runningMode: "VIDEO",
+
+                numHands: 1
+
+            }
+
+        );
+
+
+        cameraActive = true;
+
+        cameraButton.textContent =
+        "STOP CAMERA";
+
+        cameraStatus.textContent =
+        "CAMERA ACTIVE - HAND TRACKING";
+
+
+        video.style.display = "block";
+
+
+        /*
+        Begin real-time tracking.
+        */
+
+        requestAnimationFrame(
+            detectHands
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        cameraStatus.textContent =
+        "CAMERA ERROR - CHECK PERMISSION";
+
+        stopCamera();
+
+        alert(
+            "Kamera tidak dapat diaktifkan. " +
+            "Pastikan website menggunakan HTTPS " +
+            "dan izin kamera telah diberikan."
+        );
+
+    }
+
+    finally {
+
+        cameraButton.disabled = false;
+
+    }
+
+}
+
+
+/* =====================================================
+   REAL-TIME HAND TRACKING
+===================================================== */
+
+function detectHands() {
+
+    if (!cameraActive) {
+
+        return;
+
+    }
+
+
+    if (
+        video.readyState >=
+        HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+
+        if (
+            video.currentTime !==
+            lastVideoTime
+        ) {
+
+            lastVideoTime =
+            video.currentTime;
+
+
+            const results =
+            handLandmarker.detectForVideo(
+
+                video,
+
+                performance.now()
+
+            );
+
+
+            if (
+                results.landmarks &&
+                results.landmarks.length > 0
+            ) {
+
+                const landmarks =
+                results.landmarks[0];
+
+
+                const gesture =
+                detectGesture(landmarks);
+
+
+                updateGesture(gesture);
+
+
+                /*
+                Index finger controls rotation.
+                */
+
+                if (gesture === "INDEX") {
+
+                    updateHandRotation(
+                        landmarks
+                    );
+
+                }
+
+            }
+
+        }
+
+    }
+
+
+    requestAnimationFrame(
+        detectHands
+    );
+
+}
+
+
+/* =====================================================
+   STOP CAMERA
+===================================================== */
+
+function stopCamera() {
+
+    cameraActive = false;
+
+
+    if (cameraStream) {
+
+        cameraStream
+        .getTracks()
+        .forEach(track => track.stop());
+
+        cameraStream = null;
+
+    }
+
+
+    video.srcObject = null;
+
+    video.style.display = "none";
+
+
+    if (handLandmarker) {
+
+        handLandmarker.close();
+
+        handLandmarker = null;
+
+    }
+
+
+    cameraButton.textContent =
+    "ACTIVATE CAMERA";
+
+    cameraStatus.textContent =
+    "CAMERA NOT ACTIVE";
+
+}
+
+
+/* =====================================================
+   RESET HOLOGRAM
+===================================================== */
+
+function resetHologram() {
+
+    currentGesture = "OPEN";
+
+
+    handRotationX = 0;
+
+    handRotationY = 0;
+
+
+    targetRotationX = 0;
+
+    targetRotationY = 0;
+
+
+    lastHandX = null;
+
+    lastHandY = null;
+
+
+    hologramGroup.rotation.set(
+        0,
+        0,
+        0
+    );
+
+
+    setTargetPositions(
+        saturnPositions
+    );
+
+
+    gestureStatus.textContent =
+    "GESTURE: OPEN HAND";
+
+
+    instruction.textContent =
+    "OPEN YOUR HAND TO FORM SATURN";
+
+}
+
+
+/* =====================================================
+   ANIMATION LOOP
+===================================================== */
+
+function animate() {
+
+    requestAnimationFrame(animate);
+
+
+    /*
+    Morph particles.
+    */
+
+    animateParticles();
+
+
+    /*
+    Smooth rotation.
+    */
+
+    hologramGroup.rotation.x +=
+    (
+        targetRotationX -
+        hologramGroup.rotation.x
+    ) * 0.08;
+
+
+    hologramGroup.rotation.y +=
+    (
+        targetRotationY -
+        hologramGroup.rotation.y
+    ) * 0.08;
+
+
+    /*
+    Gentle ambient rotation.
+    */
+
+    if (currentGesture !== "INDEX") {
+
+        hologramGroup.rotation.y +=
+        CONFIG.rotationSpeed * 0.002;
+
+    }
+
+
+    /*
+    Ambient star movement.
+    */
+
+    if (ambientStars) {
+
+        ambientStars.rotation.y +=
+        0.00015;
+
+        ambientStars.rotation.x +=
+        0.00005;
+
+    }
+
+
+    renderer.render(
+        scene,
+        camera
+    );
+
+}
+
+
+/* =====================================================
+   WINDOW RESIZE
+===================================================== */
+
+function onWindowResize() {
+
+    camera.aspect =
+    window.innerWidth /
+    window.innerHeight;
+
+
+    camera.updateProjectionMatrix();
+
+
+    renderer.setSize(
+
+        window.innerWidth,
+
+        window.innerHeight
+
+    );
+
+
+    renderer.setPixelRatio(
+
+        Math.min(
+            window.devicePixelRatio,
+            2
+        )
+
+    );
+
+}
+
+
+/* =====================================================
+   BUTTON EVENTS
+===================================================== */
+
+cameraButton.addEventListener(
+
+    "click",
+
+    activateCamera
+
+);
+
+
+resetButton.addEventListener(
+
+    "click",
+
+    resetHologram
+
+);
+
+
+/* =====================================================
+   START APPLICATION
+===================================================== */
+
+initThree();
+
+animate();
+
+</script>
+
+</body>
+</html>
